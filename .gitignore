@@ -1,0 +1,32 @@
+# === 虚拟环境 ===
+.venv/
+venv/
+env/
+
+# === Python 缓存 / 打包产物 ===
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+*.egg
+
+# === Node.js / 前端 ===
+node_modules/
+dist/
+.DS_Store
+
+# === 运行时数据 ===
+backend/.test_runs/
+backend/.review_logs/
+backend/runtime/
+frontend/runtime/
+
+# === 密钥文件（只保留 .env.example） ===
+.env
+.env.local
+.env.*.local
+
+# === IDE ===
+.idea/
+.vscode/
+*.swp

@@ -35,11 +35,11 @@ repos = [
         "bug_report_count": 4, "incident_count": 4, "task_count": 2,
     },
 ]
-(data / "repos/repos.json").write_text(json.dumps(repos, ensure_ascii=False, indent=2))
+(data / "repos/repos.json").write_text(json.dumps(repos, ensure_ascii=False, indent=2), encoding="utf-8")
 # Also write to runtime/api/ so default-config boot works
 runtime_api = root / "runtime" / "api"
 runtime_api.mkdir(parents=True, exist_ok=True)
-(runtime_api / "repos.json").write_text(json.dumps(repos, ensure_ascii=False, indent=2))
+(runtime_api / "repos.json").write_text(json.dumps(repos, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 # ─── Bug 报告（4 条，全部来自真实 PR/commit）───────────────────────────────────
@@ -250,12 +250,12 @@ incidents = [
     },
 ]
 for inc in incidents:
-    (data / f"incidents/{inc['id']}.json").write_text(json.dumps(inc, ensure_ascii=False, indent=2))
+    (data / f"incidents/{inc['id']}.json").write_text(json.dumps(inc, ensure_ascii=False, indent=2), encoding="utf-8")
 # Also write to runtime/ so default-config boot works without start_demo.py
 runtime_incidents = root / "runtime" / "incidents"
 runtime_incidents.mkdir(parents=True, exist_ok=True)
 for inc in incidents:
-    (runtime_incidents / f"{inc['id']}.json").write_text(json.dumps(inc, ensure_ascii=False, indent=2))
+    (runtime_incidents / f"{inc['id']}.json").write_text(json.dumps(inc, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 # ─── 知识条目（5 条，关联真实 Bug 报告）────────────────────────────────────────
@@ -368,10 +368,10 @@ skills = [
     },
 ]
 # Write demo skills to both .demo_data (legacy) and runtime/ (used by default config)
-(data / "skills/skills.json").write_text(json.dumps(skills, ensure_ascii=False, indent=2))
+(data / "skills/skills.json").write_text(json.dumps(skills, ensure_ascii=False, indent=2), encoding="utf-8")
 runtime_skills = root / "runtime" / "skills.json"
 runtime_skills.parent.mkdir(parents=True, exist_ok=True)
-runtime_skills.write_text(json.dumps(skills, ensure_ascii=False, indent=2))
+runtime_skills.write_text(json.dumps(skills, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 # ─── 审核历史（基于真实时间线）─────────────────────────────────────────────────
@@ -399,7 +399,7 @@ review_histories = {
     ],
 }
 for bug_id, history in review_histories.items():
-    (review_logs_dir / f"{bug_id}.json").write_text(json.dumps(history, ensure_ascii=False, indent=2))
+    (review_logs_dir / f"{bug_id}.json").write_text(json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 # ─── 启动 ───────────────────────────────────────────────────────────────────────

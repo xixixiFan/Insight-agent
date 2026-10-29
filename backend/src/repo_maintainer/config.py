@@ -177,8 +177,8 @@ class OpenAIExecutorConfig:
     base_url: str
     model: str
     timeout_seconds: int
-    max_output_tokens: int
-    compatibility_mode: str
+    max_output_tokens: int 
+    compatibility_mode: str # 兼容模式
     extra_headers: dict[str, str] = field(default_factory=dict)
 
     @classmethod

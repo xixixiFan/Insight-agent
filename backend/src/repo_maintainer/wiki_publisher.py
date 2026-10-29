@@ -38,6 +38,19 @@ class WikiPublisherService:
             output_dir = Path(".wiki_output")
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        """
+        发布文档到 Wiki。
+
+        Args:
+            bug_report_id: 文档 ID
+            title: 文档标题
+            content: 文档内容（Markdown 格式）
+            repo_name: 仓库名称（可选）
+            keywords: 文档关键词（可选）
+
+        Returns:
+            发布结果（字典）
+        """
 
     def publish(
         self,
@@ -190,7 +203,22 @@ def publish_bug_review_to_local(
     review_doc: dict[str, Any],
     output_dir: str | Path = ".wiki_output",
     repo_name: str = "",
+    keywords: list[str] | None = None,
 ) -> dict[str, Any]:
+    """
+    将 BugReviewDocument 发布到本地 Markdown 文件。
+
+    args:
+        bug_report_id: 唯一标识该 Bug 报告的 ID
+        title: 发布的文档标题
+        review_doc: 包含 BugReviewDocument 字段的字典
+        output_dir: 输出目录，默认当前目录下的 .wiki_output 文件夹
+        repo_name: 相关仓库名称，用于文档元数据
+        keywords: 文档关键词列表，用于搜索索引
+
+    returns:
+        发布结果字典，包含状态、路径、URL 和消息
+    """
     service = WikiPublisherService(output_dir=output_dir, mode="local")
     return service.publish(
         bug_report_id=bug_report_id,

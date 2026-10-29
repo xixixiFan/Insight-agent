@@ -1,0 +1,17 @@
+[
+  {
+    "id": "repo-aiflow",
+    "name": "gulugulu33/aiflow-studio",
+    "url": "https://github.com/gulugulu33/aiflow-studio",
+    "owner": "林梓圆 (gulugulu33)",
+    "status": "normal",
+    "health_score": 88,
+    "ci_status": "normal",
+    "source_type": "github",
+    "webhook_active": true,
+    "description": "AI Flow Studio — 可视化 AI 工作流编排平台 | ⭐13 · Fork 8",
+    "bug_report_count": 4,
+    "incident_count": 4,
+    "task_count": 2
+  }
+]

@@ -29,6 +29,20 @@ class BaseVectorStore:
     ) -> dict[str, list[float]]:
         raise NotImplementedError
 
+    """
+    执行近似最近邻搜索。
+
+    args:
+        collection: 集合名称，用于区分不同的文档集合。
+        item_ids: 要搜索的文档项 ID 列表。
+        query_vector: 查询向量，用于计算相似度。
+        signature_length: 签名长度，用于确定搜索的精度。
+        probe_count: 探针数量，用于确定搜索的覆盖范围。
+        limit: 返回结果的数量上限。
+
+    returns:
+        与查询向量最相似的文档项 ID 列表。
+    """
     def ann_search(
         self,
         collection: str,

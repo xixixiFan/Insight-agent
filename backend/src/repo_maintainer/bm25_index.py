@@ -8,6 +8,7 @@ BM25 关键词倒排索引模块（RAG 知识增强层）
 
 不依赖外部库，纯 Python 实现 BM25F 算法。
 """
+# 让所有类型注解变成字符串，延迟解析。
 from __future__ import annotations
 
 import json
@@ -21,8 +22,20 @@ from typing import Any
 
 
 @dataclass
+# @dataclass的作用是自动实现 __init__ 方法，无需手动编写。
+# 这里使用它来定义 BM25Document 类，用于存储和管理 BM25 索引文档。
+# 结合@property，可以方便地定义只读属性。
 class BM25Document:
-    """BM25 索引文档"""
+    """
+    doc_id: 文档唯一标识符
+    doc_type: 文档类型，knowledge_entry / bug_report / trace
+    title: 文档标题
+    body: 文档正文
+    keywords: 文档关键词列表
+    metadata: 其他元数据，如创建时间、更新时间等
+
+    field(default_factory=list) 初始化时创建空列表，避免 None 错误。
+    """
     doc_id: str
     doc_type: str           # knowledge_entry / bug_report / trace
     title: str
@@ -30,40 +43,56 @@ class BM25Document:
     keywords: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    @property
+    @property # @property的作用是将方法转换为只读属性，无需在实例化时调用。例如: text = doc.full_text,而不是doc.full_text()
     def full_text(self) -> str:
-        """合并所有字段用于索引"""
+        """
+        定义full_text属性，用于合并title、keywords、body字段用于索引
+        @ Args:
+            self: 当前文档实例
+        @ Returns:
+            str: 合并后的文档文本，包含标题、关键词和正文
+        """
         parts = [self.title]
-        parts.extend(self.keywords)
+        # 把keywords列表中的每个元素逐个添加到parts列表末尾
+        parts.extend(self.keywords) # extend() 会将传入的可迭代对象中的每个元素逐一添加到列表的末尾。如果传入的是非可迭代对象，则会报错。 
         if self.body:
-            parts.append(self.body)
+            # 把body作为整体添加到parts列表末尾
+            parts.append(self.body) # append() 会将传入的参数作为一个整体添加到列表的末尾。无论参数是单个元素还是一个可迭代对象，它都被视为一个单一元素。
         return " ".join(filter(None, parts))
 
 
 @dataclass
 class BM25SearchResult:
-    """BM25 搜索结果"""
+    """
+    doc_id: 文档唯一标识符
+    doc_type: 文档类型，knowledge_entry / bug_report / trace
+    score: 文档与查询的 BM25 分数
+    title: 文档标题
+    metadata: 其他元数据，如创建时间、更新时间等
+    matched_terms: 查询中匹配的关键词列表
+    """
     doc_id: str
     doc_type: str
     score: float
     title: str
-    metadata: dict[str, Any] = field(default_factory=dict)
-    matched_terms: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict) # 字典
+    matched_terms: list[str] = field(default_factory=list) # 列表
 
 
 class BM25Index:
     """
     BM25 关键词倒排索引
-
     实现 BM25+ 算法（BM25 的改进版本，避免词频权重为 0 的问题）：
-    score(q, d) = Σ IDF(t) * (tf(t,d) * (k1+1)) / (tf(t,d) + k1*(1-b+b*|d|/avgdl)) + δ
-
+    公式：score(q, d) = Σ IDF(t) * (tf(t,d) * (k1+1)) / (tf(t,d) + k1*(1-b+b*|d|/avgdl)) + δ
     参数：
-    - k1: 控制词频饱和度（通常 1.2-2.0）
-    - b: 控制文档长度归一化（0-1）
-    - delta: BM25+ 改进项
+    - IDF(t)：逆文档频率，词越稀有值越大；
+    - k1: 控制词频饱和度（通常 1.2-2.0），词频权重，防止过拟合。
+    - b: 控制文档长度归一化（0-1），用于调整长文档对查询的影响。
+    - delta: BM25+ 改进项，保证即使低频词也有基础贡献。
+    - avgdl: 平均文档长度，用于归一化文档长度。
     """
 
+    # bm25_documents 存储文档原文（title/body/keywords/metadata/created_at）
     _CREATE_TABLE = """
     CREATE TABLE IF NOT EXISTS bm25_documents (
         doc_id TEXT NOT NULL,
@@ -76,10 +105,10 @@ class BM25Index:
         PRIMARY KEY (doc_id, doc_type)
     )
     """
-
+    # bm25_inverted_index 倒排表 
     _CREATE_INDEX_TABLE = """
     CREATE TABLE IF NOT EXISTS bm25_inverted_index (
-        term TEXT NOT NULL,
+        term TEXT NOT NULL, 
         doc_id TEXT NOT NULL,
         doc_type TEXT NOT NULL,
         tf INTEGER NOT NULL DEFAULT 1,
@@ -87,7 +116,7 @@ class BM25Index:
         PRIMARY KEY (term, doc_id, doc_type)
     )
     """
-
+    # bm25_stats 缓存key-value对，用于存储文档总数n_docs和平均文档长度avg_doc_len，避免每次搜索都全表聚合
     _CREATE_STATS_TABLE = """
     CREATE TABLE IF NOT EXISTS bm25_stats (
         key TEXT PRIMARY KEY,
@@ -98,7 +127,7 @@ class BM25Index:
     def __init__(
         self,
         db_path: str | Path,
-        k1: float = 1.5,
+        k1: float = 1.5, 
         b: float = 0.75,
         delta: float = 0.5,
     ) -> None:
@@ -107,32 +136,41 @@ class BM25Index:
         self.k1 = k1
         self.b = b
         self.delta = delta
-        self._local = threading.local()
+        self._local = threading.local() # threading.local()会创建一个“线程隔离的数据容器”。SQLite 连接不是线程安全的，每个线程要独立连接。这就是 Python 里常见的"线程本地连接池"模式。
         self._init_db()
 
     def _conn(self) -> sqlite3.Connection:
-        conn = getattr(self._local, "conn", None)
+        """获取线程本地的数据库连接"""
+        conn = getattr(self._local, "conn", None) # getattr() 会返回指定属性的值，如果属性不存在，则返回 None。
         if conn is None:
-            conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-            conn.row_factory = sqlite3.Row
-            self._local.conn = conn
+            conn = sqlite3.connect(str(self.db_path), check_same_thread=False) # check_same_thread=False 会允许在多个线程中使用同一个连接。
+            conn.row_factory = sqlite3.Row # sqlite3.Row是一个类，它创建的实例可以像字典一样使用。例如，conn.execute("SELECT 1").fetchone() 会返回一个sqlite3.Row类的实例，用于表示数据库中的行数据。
+            conn.execute("SELECT 1") # 执行一个简单的查询，确保连接成功。
+            self._local.conn = conn # 把连接绑定到当前线程名下
         return conn
 
     def _init_db(self) -> None:
+        """
+        初始化数据库
+        1、创建数据库表（bm25_documents, bm25_inverted_index, bm25_stats）
+        2、创建索引（idx_bm25_term, idx_bm25_doc）
+        """
         with self._conn() as conn:
             conn.execute(self._CREATE_TABLE)
             conn.execute(self._CREATE_INDEX_TABLE)
             conn.execute(self._CREATE_STATS_TABLE)
+            # 1、根据 bm25_inverted_index.term 字段创建索引，用于快速查询包含该词的文档。
+            # 2、根据 bm25_inverted_index.doc_id, bm25_inverted_index.doc_type 字段创建索引，用于快速查询该文档的所有词频。
             conn.execute("CREATE INDEX IF NOT EXISTS idx_bm25_term ON bm25_inverted_index (term)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_bm25_doc ON bm25_inverted_index (doc_id, doc_type)")
 
     def index_document(self, doc: BM25Document) -> None:
-        """索引单个文档"""
+        """倒排索引单个文档"""
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc).isoformat()
 
         with self._conn() as conn:
-            # 先删除旧索引
+            # 先删除旧索引，使用占位符 ? 防止 SQL注入。
             conn.execute(
                 "DELETE FROM bm25_inverted_index WHERE doc_id = ? AND doc_type = ?",
                 (doc.doc_id, doc.doc_type),
@@ -150,14 +188,15 @@ class BM25Index:
                 ),
             )
 
-            # 分词并建立倒排索引
+            # 给文档全文分词并建立倒排索引
             tokens = self._tokenize(doc.full_text)
             doc_len = len(tokens)
-            term_freq: dict[str, int] = {}
+            term_freq: dict[str, int] = {} 
+            # 统计每个词的词频（出现次数）
             for token in tokens:
                 term_freq[token] = term_freq.get(token, 0) + 1
-
-            for term, tf in term_freq.items():
+            for term, tf in term_freq.items(): #items方法返回一个迭代器，每个元素是一个二组，每个元组包含键（term）和对应的值（tf）。   
+                # 每个元组的键是词，值是词频。
                 conn.execute(
                     "INSERT OR REPLACE INTO bm25_inverted_index VALUES (?, ?, ?, ?, ?)",
                     (term, doc.doc_id, doc.doc_type, tf, doc_len),
@@ -167,12 +206,12 @@ class BM25Index:
         self._update_stats()
 
     def index_batch(self, docs: list[BM25Document]) -> None:
-        """批量索引文档"""
+        """批量倒排索引文档"""
         for doc in docs:
             self.index_document(doc)
 
     def remove_document(self, doc_id: str, doc_type: str) -> None:
-        """从索引中删除文档"""
+        # 删除文档：1.从 bm25_documents 表删除文档；2.从 bm25_inverted_index 表删除该文档的所有索引。
         with self._conn() as conn:
             conn.execute(
                 "DELETE FROM bm25_documents WHERE doc_id = ? AND doc_type = ?",
@@ -192,12 +231,10 @@ class BM25Index:
     ) -> list[BM25SearchResult]:
         """
         BM25 关键词搜索
-
         Args:
             query: 搜索查询
             doc_types: 过滤文档类型（None=全部）
             limit: 返回结果数量
-
         Returns:
             按 BM25 分数排序的结果列表
         """
@@ -209,13 +246,12 @@ class BM25Index:
         stats = self._get_stats()
         n_docs = stats.get("n_docs", 0)
         avg_doc_len = stats.get("avg_doc_len", 100.0)
-
         if n_docs == 0:
             return []
 
         # 计算每个文档的 BM25 分数
-        doc_scores: dict[tuple[str, str], float] = {}
-        doc_matched_terms: dict[tuple[str, str], list[str]] = {}
+        doc_scores: dict[tuple[str, str], float] = {} # doc_scores是文档BM25分数，tuple是元组，用于存储文档ID和文档类型，BM25分数为值
+        doc_matched_terms: dict[tuple[str, str], list[str]] = {} # doc_matched_terms是文档匹配词，tuple是元组，用于存储文档ID和文档类型，匹配的词为值
 
         for term in set(query_terms):  # 去重 term
             # 获取包含该 term 的文档列表
@@ -317,6 +353,7 @@ class BM25Index:
         term: str,
         doc_types: list[str] | None,
     ) -> list[sqlite3.Row]:
+        """获取包含该 term 的文档列表"""
         if doc_types:
             placeholders = ",".join("?" for _ in doc_types)
             return self._conn().execute(
@@ -354,11 +391,12 @@ class BM25Index:
             )
 
     def _get_stats(self) -> dict[str, float]:
-        rows = self._conn().execute("SELECT key, value FROM bm25_stats").fetchall()
+        """获取索引统计信息(文档总数n_docs和平均文档长度avg_doc_len)并转为字典返回"""
+        rows = self._conn().execute("SELECT key, value FROM bm25_stats").fetchall() # fetchall()方法返回所有行，每个行是一个元组，包含键和值
         stats: dict[str, float] = {}
-        for row in rows:
+        for key, value in rows:
             try:
-                stats[row["key"]] = float(row["value"])
+                stats[key] = float(value)
             except (ValueError, TypeError):
                 pass
         return stats

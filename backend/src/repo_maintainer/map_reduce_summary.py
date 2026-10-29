@@ -15,20 +15,37 @@ from typing import Any, Callable
 
 
 @dataclass
+# @dataclass 装饰器用于定义数据类，自动添加 __init__ 方法、__repr__ 方法等。
 class TextChunk:
-    """文本分块"""
+    """
+    文本分块数据类
+    - index: 分块索引，从 0 开始
+    - content: 分块文本内容
+    - source_type: 分块来源类型，如 text、log、pr_body、commit_message
+    - char_start: 分块起始字符位置
+    - char_end: 分块结束字符位置
+    - metadata: 其他元数据，如文件路径、行号等
+    """
     index: int
     content: str
     source_type: str = "text"      # text / log / pr_body / commit_message
     char_start: int = 0
     char_end: int = 0
-    metadata: dict[str, Any] = field(default_factory=dict)
-
+    metadata: dict[str, Any] = field(default_factory=dict) #field(default_factory=dict) 用于创建一个默认的字典，用于存储其他元数据。
 
 @dataclass
 class ChunkSummary:
-    """单块摘要结果"""
-    chunk_index: int
+    """
+    单块摘要结果数据类
+    - chunk_index: 分块索引，从 0 开始
+    - summary: 分块摘要文本
+    - keywords: 关键词列表，用于后续分析
+    - has_root_cause: 是否包含根原因
+    - has_fix_info: 是否包含修复信息
+    - confidence: 置信度，用于评估摘要质量
+    - raw_response: 原始 LLM 响应，包含所有信息
+    """
+    chunk_index: int 
     summary: str
     keywords: list[str] = field(default_factory=list)
     has_root_cause: bool = False
@@ -36,10 +53,18 @@ class ChunkSummary:
     confidence: float = 0.0
     raw_response: str = ""
 
-
 @dataclass
 class MapReduceResult:
-    """Map-Reduce 最终结果"""
+    """
+    最终结果数据类
+    - final_summary: 最终摘要文本
+    - all_keywords: 所有提取的关键词列表
+    - chunk_count: 分块总数
+    - token_estimate: 估计的总令牌数
+    - root_cause_chunks: 包含根原因的分块索引列表
+    - fix_info_chunks: 包含修复信息的分块索引列表
+    - chunk_summaries: 每个分块的摘要结果列表
+    """
     final_summary: str
     all_keywords: list[str]
     chunk_count: int
@@ -48,22 +73,39 @@ class MapReduceResult:
     fix_info_chunks: list[int] = field(default_factory=list)
     chunk_summaries: list[ChunkSummary] = field(default_factory=list)
 
-
 class MapReduceSummarizer:
     """
     长上下文 Map-Reduce 压缩器
+    Map-Reduce 策略：
+    1. Map：将长文本分块，逐块提取关键信息
+    2. Reduce：将所有块的摘要合并为最终结构化输出
 
     用于 Bug 复盘场景中处理超长输入文本（日志、PR 讨论等）。
     将文本分块后逐块提取，最终合并为统一摘要，再传给后续 LLM 抽取步骤。
     """
 
+    # 预编译正则（类级别，仅编译一次；re.Pattern 不可变且匹配线程安全）
+       # 预编译正则（类级别，仅编译一次；re.Pattern 不可变且匹配线程安全）
+    _TECH_PATTERN = re.compile(
+        r"\b(?:"
+        r"[A-Z][a-z]+(?:[A-Z][a-z]+)+"   # 驼峰词（如 ReactHook）
+        r"|[a-z]+(?:_[a-z]+){1,}"          # 下划线词（如 use_effect）
+        r"|[a-z]+(?:\.[a-z]+){1,}"         # 点号词（如 react.hooks）
+        r"|Error|Exception|Warning|Failed"  # 错误类词
+        r")\b"
+    )
+    _ACTION_PATTERN = re.compile(
+        r"\b(?:fix(?:ed)?|bug|error|issue|crash|fail(?:ed|ure)?|revert(?:ed)?)\s+(\w+)",
+        re.IGNORECASE,
+    )
+
     def __init__(
         self,
-        chunk_size_chars: int = 3000,
-        chunk_overlap_chars: int = 200,
-        max_chunks: int = 20,
-        map_prompt_template: str | None = None,
-        reduce_prompt_template: str | None = None,
+        chunk_size_chars: int = 3000, # 每个分块的最大字符数
+        chunk_overlap_chars: int = 200, # 分块之间的重叠字符数
+        max_chunks: int = 20, # 最大分块数
+        map_prompt_template: str | None = None, # Map 提示词模板
+        reduce_prompt_template: str | None = None, # Reduce 提示词模板
     ) -> None:
         self.chunk_size_chars = chunk_size_chars
         self.chunk_overlap_chars = chunk_overlap_chars
@@ -78,8 +120,12 @@ class MapReduceSummarizer:
     ) -> list[TextChunk]:
         """
         将长文本分块
-
         按段落边界切分，保留重叠区域以避免信息丢失。
+        切分思路：
+        1. 每个分块最大字符数为 chunk_size_chars
+        2. 每个分块之间保留 chunk_overlap_chars 字符重叠
+        3. 最大分块数为 max_chunks
+        4. 每个分块内容不为空
         """
         if not text.strip():
             return []
@@ -90,14 +136,14 @@ class MapReduceSummarizer:
 
         while start < len(text) and index < self.max_chunks:
             end = min(start + self.chunk_size_chars, len(text))
-
             # 尝试在段落边界切分
             if end < len(text):
                 # 向后找段落分隔符
                 split_pos = text.rfind("\n\n", start, end)
                 if split_pos == -1:
+                    # 没有段落分隔符，直接在段落结束切分
                     split_pos = text.rfind("\n", start, end)
-                if split_pos != -1 and split_pos > start + self.chunk_size_chars // 2:
+                if split_pos != -1 and split_pos > start + self.chunk_size_chars // 2: # // 2 表示取整除，确保切分位置在段落中间
                     end = split_pos + 1
 
             chunk_text = text[start:end].strip()
@@ -117,7 +163,7 @@ class MapReduceSummarizer:
                 next_start = end
             start = next_start
 
-        return chunks
+        return chunks[:self.max_chunks]
 
     def split_structured_content(
         self,
@@ -129,8 +175,8 @@ class MapReduceSummarizer:
     ) -> list[TextChunk]:
         """
         将结构化内容拆分为带来源标注的块
-
         各部分分别处理，便于后续抽取时绑定来源。
+        切分思路与split_text相同，只是内容分为 PR 描述、Commit 消息、日志、群聊讨论 四部分。每个部分的分块规则与 split_text 相同
         """
         chunks: list[TextChunk] = []
         index = 0
@@ -138,6 +184,7 @@ class MapReduceSummarizer:
         # PR 标题 + 描述
         if pr_title or pr_body:
             pr_content = f"## PR 描述\n标题：{pr_title}\n\n{pr_body}".strip()
+            # 分块 PR 描述到 chunks 中
             for chunk in self.split_text(pr_content, source_type="pr_body"):
                 chunk.index = index
                 chunks.append(chunk)
@@ -148,12 +195,13 @@ class MapReduceSummarizer:
             commit_content = "## Commit Messages\n" + "\n---\n".join(
                 f"- {msg}" for msg in commit_messages[:50]
             )
+            # 分块 Commit 消息到 chunks 中
             for chunk in self.split_text(commit_content, source_type="commit_message"):
                 chunk.index = index
                 chunks.append(chunk)
                 index += 1
 
-        # 日志
+        # 分块日志到 chunks 中
         if logs and logs.strip():
             for chunk in self.split_text(logs, source_type="log"):
                 chunk.index = index
@@ -167,6 +215,7 @@ class MapReduceSummarizer:
             chat_content = "## 群聊讨论\n" + "\n".join(
                 f"- {msg}" for msg in chat_messages[:30]
             )
+            # 分块群聊消息到 chunks 中
             for chunk in self.split_text(chat_content, source_type="chat"):
                 chunk.index = index
                 chunks.append(chunk)
@@ -177,14 +226,14 @@ class MapReduceSummarizer:
     def map_chunk(
         self,
         chunk: TextChunk,
-        llm_call: Callable[[str], str] | None = None,
+        llm_call: Callable[[str], str] | None = None, # Callable[[str], str] 是一个函数类型，接受一个字符串参数并返回一个字符串结果
     ) -> ChunkSummary:
         """
         对单个块进行 Map 处理（提取关键信息）
-
         如果提供了 llm_call，则调用 LLM；否则使用启发式规则提取。
         """
         if llm_call is not None:
+            # 构建提示词
             prompt = self.map_prompt_template.format(
                 source_type=chunk.source_type,
                 chunk_index=chunk.index,
@@ -192,6 +241,7 @@ class MapReduceSummarizer:
             )
             try:
                 raw_response = llm_call(prompt)
+                # 解析 LLM 响应
                 return self._parse_map_response(chunk.index, raw_response)
             except Exception:  # noqa: BLE001
                 pass
@@ -207,24 +257,37 @@ class MapReduceSummarizer:
     ) -> MapReduceResult:
         """
         对所有块摘要进行 Reduce 处理（合并为最终摘要）
-
         如果提供了 llm_call，则调用 LLM；否则使用启发式合并。
+        Args:
+            chunk_summaries: 所有块摘要的列表
+            original_title (str, optional): PR 标题。 Defaults to "".
+            llm_call (Callable[[str], str] | None, optional): LLM 调用函数。 Defaults to None.
+        Returns:
+            MapReduceResult: 包含最终摘要、关键词、块数量、token 估算、根因块索引、修复信息块索引、块摘要的结构化结果
+        启并规则：
+        1. 合并所有块摘要
+        2. 合并所有关键词，去重
+        3. 按词频排序，返回前 30 个关键词
         """
+        # fromkeys 合并去重，取高频词
         all_keywords = list(dict.fromkeys(
             kw for summary in chunk_summaries for kw in summary.keywords
         ))
+        # 所有含有根因的块索引
         root_cause_chunks = [s.chunk_index for s in chunk_summaries if s.has_root_cause]
+        # 所有含有修复信息的块索引
         fix_info_chunks = [s.chunk_index for s in chunk_summaries if s.has_fix_info]
 
         if llm_call is not None:
             summaries_text = "\n\n".join(
                 f"[块 {s.chunk_index}] {s.summary}" for s in chunk_summaries
             )
+            # 构建Reduce 提示词
             prompt = self.reduce_prompt_template.format(
                 title=original_title,
                 chunk_count=len(chunk_summaries),
                 summaries=summaries_text,
-                keywords=", ".join(all_keywords[:20]),
+                keywords=", ".join(all_keywords[:20]), # 取前 20 个关键词
             )
             try:
                 raw_response = llm_call(prompt)
@@ -232,17 +295,18 @@ class MapReduceSummarizer:
             except Exception:  # noqa: BLE001
                 final_summary = self._heuristic_reduce(chunk_summaries, original_title)
         else:
+            # 启发式规则合并兜底（LLM 不可用时）
             final_summary = self._heuristic_reduce(chunk_summaries, original_title)
 
-        token_estimate = len(final_summary) // 4
+        token_estimate = len(final_summary) // 4 # 估算 token 数量，每个 token 大约 4 个字符，根据实际情况调整
 
         return MapReduceResult(
             final_summary=final_summary,
             all_keywords=all_keywords[:30],
             chunk_count=len(chunk_summaries),
             token_estimate=token_estimate,
-            root_cause_chunks=root_cause_chunks,
-            fix_info_chunks=fix_info_chunks,
+            root_cause_chunks=root_cause_chunks, # 元信息，记录含有根因的块索引
+            fix_info_chunks=fix_info_chunks, # 元信息，记录含有修复信息的块索引
             chunk_summaries=chunk_summaries,
         )
 
@@ -263,10 +327,11 @@ class MapReduceSummarizer:
             original_title: 原始标题（用于 Reduce 提示词）
 
         Returns:
-            MapReduceResult 包含最终摘要和关键词
+            MapReduceResult: 包含最终摘要、关键词、块数量、token 估算、根因块索引、修复信息块索引、块摘要的结构化结果
         """
+        # 1. 分块文本为块列表
         chunks = self.split_text(text, source_type=source_type)
-
+        # 2. 检查是否为空
         if not chunks:
             return MapReduceResult(
                 final_summary="",
@@ -274,8 +339,7 @@ class MapReduceSummarizer:
                 chunk_count=0,
                 token_estimate=0,
             )
-
-        # 如果只有一块，直接返回（不需要 Map-Reduce）
+        # 3. 检查是否只有一个块，如果只有一块，直接返回（不需要 Map-Reduce）
         if len(chunks) == 1:
             single_summary = self.map_chunk(chunks[0], llm_call)
             return MapReduceResult(
@@ -305,7 +369,20 @@ class MapReduceSummarizer:
         chat_messages: list[str] | None = None,
         llm_call: Callable[[str], str] | None = None,
     ) -> MapReduceResult:
-        """对结构化内容执行 Map-Reduce"""
+        """
+        执行完整的结构化内容 Map-Reduce 流程
+
+        Args:
+            pr_title: PR 标题
+            pr_body: PR 内容
+            commit_messages: 提交消息列表
+            logs: 日志内容
+            chat_messages: 聊天消息列表
+            llm_call: LLM 调用函数（可选，不提供时使用启发式）
+        Returns:
+            MapReduceResult: 包含最终摘要、关键词、块数量、token 估算、根因块索引、修复信息块索引、块摘要的结构化结果
+        """
+        # 1. 分块结构化内容为块列表
         chunks = self.split_structured_content(
             pr_title=pr_title,
             pr_body=pr_body,
@@ -360,20 +437,28 @@ class MapReduceSummarizer:
         summaries: list[ChunkSummary],
         title: str = "",
     ) -> str:
-        """启发式 Reduce（不依赖 LLM）"""
+        """
+        启发式 Reduce（不依赖 LLM）
+        1. 优先包含有根本原因信息的块
+        2. 优先包含修复信息块
+        3. 其他块按摘要长度排序，取前 2 个
+        """
         parts = []
         if title:
             parts.append(f"标题：{title}")
 
         # 优先包含有根本原因信息的块
         root_summaries = [s for s in summaries if s.has_root_cause]
+        # 优先包含修复信息块
         fix_summaries = [s for s in summaries if s.has_fix_info]
 
         if root_summaries:
             parts.append("【根本原因相关】")
+            # 取前 2 个根因块的摘要（每个摘要 200 字以内）
             parts.extend(s.summary[:200] for s in root_summaries[:2])
         if fix_summaries:
             parts.append("【修复信息相关】")
+            # 取前 2 个修复信息块的摘要（每个摘要 200 字以内）
             parts.extend(s.summary[:200] for s in fix_summaries[:2])
 
         # 补充其他块
@@ -383,12 +468,19 @@ class MapReduceSummarizer:
         ]
         if other_summaries:
             parts.append("【其他信息】")
+            # 取第一个其他块的摘要（每个摘要 200 字以内）
             parts.append(other_summaries[0].summary[:200])
 
         return "\n\n".join(parts) or (summaries[0].summary if summaries else "")
 
     def _extract_keywords_heuristic(self, text: str) -> list[str]:
-        """启发式关键词提取"""
+        """
+        启发式关键词提取
+        1. 提取技术词汇（驼峰/下划线/点号分隔）
+        2. 提取关键短语（fix/bug/error 附近的词）
+        3. 合并去重，取高频词（词频大于 3 次）
+        4. 按词频排序，返回前 10 个关键词
+        """
         # 提取技术词汇（驼峰/下划线/点号分隔）
         tech_pattern = re.compile(
             r"\b(?:"
@@ -398,37 +490,38 @@ class MapReduceSummarizer:
             r"|Error|Exception|Warning|Failed"  # 错误类词
             r")\b"
         )
-        tech_words = tech_pattern.findall(text)
+        tech_words = self._TECH_PATTERN.findall(text) # findall 提取所有匹配词汇，不重叠
 
         # 提取关键短语（fix/bug/error 附近的词）
-        action_pattern = re.compile(
-            r"\b(?:fix(?:ed)?|bug|error|issue|crash|fail(?:ed|ure)?|revert(?:ed)?)\s+(\w+)",
-            re.IGNORECASE,
-        )
-        action_words = [m.group(1) for m in action_pattern.finditer(text)]
+        action_words = [m.group(1) for m in self._ACTION_PATTERN.finditer(text)] # finditer 提取所有匹配短语，重叠，每个匹配短语只提取第一个词
 
         # 合并去重，取高频词
-        all_words = [w.lower() for w in tech_words + action_words]
+        all_words = [w.lower() for w in tech_words + action_words] 
         freq: dict[str, int] = {}
         for w in all_words:
             if len(w) > 3:
-                freq[w] = freq.get(w, 0) + 1
+                freq[w] = freq.get(w, 0) + 1 # 统计词频
 
+        # key=lambda 改为按 value 排序,freq[w] 为词频
         sorted_words = sorted(freq, key=lambda w: freq[w], reverse=True)
         return sorted_words[:10]
 
     def _parse_map_response(self, chunk_index: int, response: str) -> ChunkSummary:
-        """解析 LLM Map 响应"""
+        """
+        解析 LLM Map 响应
+        1. 尝试解析 JSON 格式
+        2. 如果解析失败，降级将整段响应作为摘要
+        """
         import json as _json
 
         # 尝试解析 JSON 格式
-        json_match = re.search(r"\{.*\}", response, re.DOTALL)
+        json_match = re.search(r"\{.*\}", response, re.DOTALL) # re.search 搜索第一个匹配项,三个参数: 正则表达式, 字符串, 标志位
         if json_match:
             try:
-                data = _json.loads(json_match.group(0))
+                data = _json.loads(json_match.group(0)) # group(0) 取匹配的整体 JSON 字符串，json.loads 解析为 Python 字典或列表
                 return ChunkSummary(
                     chunk_index=chunk_index,
-                    summary=str(data.get("summary", response[:300])),
+                    summary=str(data.get("summary", response[:300])), # 取 JSON 中的 summary 字段，或默认取响应的前 300 字
                     keywords=list(data.get("keywords", [])),
                     has_root_cause=bool(data.get("has_root_cause", False)),
                     has_fix_info=bool(data.get("has_fix_info", False)),

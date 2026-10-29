@@ -1,76 +1,130 @@
-from __future__ import annotations
+# Bug 复盘 / 自动修复 Agent 系统的 领域模型定义文件
+# from xx import xx 导入特定函数
 
+#  annotations的作用是允许在类型提示中使用前向引用，即在类型提示中引用尚未定义的类或类型。这在定义类时非常有用，尤其是当类之间存在相互引用的情况。通过使用annotations，可以避免因类定义顺序导致的类型错误。
+from __future__ import annotations
+# dataclasses模块提供了一个装饰器和函数，用于简化类的定义，使其更容易创建不可变的数据对象。它自动生成一些特殊方法，如__init__()、__repr__()、__eq__()等，从而减少了样板代码的编写。
 from dataclasses import dataclass, field
+# datetime模块提供了处理日期和时间的类和函数。datetime.now(timezone.utc)返回当前的UTC时间，isoformat()将其转换为ISO 8601格式的字符串表示。
 from datetime import datetime, timezone
 from enum import Enum
+# typing模块提供了对类型提示的支持。Any表示可以是任意类型，list[str]表示字符串列表，dict[str, Any]表示键为字符串、值为任意类型的字典。
 from typing import Any
 
 
+# 定义获取当前UTC时间的函数，返回ISO 8601格式的字符串表示
 def iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# Bug categories
+# 定义类（面向对象：属性+方法）
+# Bug categories,继承自str和Enum类，表示Bug的分类
 class BugCategory(str, Enum):
     """Bug 分类（对齐 Bug 复盘知识库场景）"""
+    # react_closure: React 组件闭包问题
     REACT_CLOSURE = "react_closure"
+    # sse_stream: Server-Sent Events 流问题
     SSE_STREAM = "sse_stream"
+    # race_condition: 竞态条件问题
     RACE_CONDITION = "race_condition"
+    # ws_reconnect: WebSocket 重连问题
     WS_RECONNECT = "ws_reconnect"
+    # ci_pollution: CI 污染问题
     CI_POLLUTION = "ci_pollution"
+    # dependency_conflict: 依赖冲突问题
     DEPENDENCY_CONFLICT = "dependency_conflict"
+    # test_regression: 测试回归问题
     TEST_REGRESSION = "test_regression"
+    # cross_module_defect: 跨模块缺陷
     CROSS_MODULE_DEFECT = "cross_module_defect"
+    # unknown: 未知问题
     UNKNOWN = "unknown"
 
 
 # Legacy enum for backward compatibility
 class IncidentType(str, Enum):
+    # ci_failure: CI 失败问题
     CI_FAILURE = "ci_failure"
+    # dependency_conflict: 依赖冲突问题
     DEPENDENCY_CONFLICT = "dependency_conflict"
+    # test_regression: 测试回归问题
     TEST_REGRESSION = "test_regression"
+    # cross_module_defect: 跨模块缺陷
     CROSS_MODULE_DEFECT = "cross_module_defect"
+    # unknown: 未知问题
     UNKNOWN = "unknown"
 
 
+# 定义Agent角色的枚举类，继承自str和Enum类
 class AgentRole(str, Enum):
     """Agent role definitions"""
+    # generalist: 通用型 Agent
     GENERALIST = "generalist"
+    # event_classifier: 事件分类器 Agent
     EVENT_CLASSIFIER = "event_classifier"
+    # info_extractor: 信息抽取器 Agent
     INFO_EXTRACTOR = "info_extractor"
+    # context_enricher: 上下文增强器 Agent
     CONTEXT_ENRICHER = "context_enricher"
+    # review_agent: 审查 Agent
     REVIEW_AGENT = "review_agent"
+    # pipeline_orchestrator: 流水线编排器 Agent
     PIPELINE_ORCHESTRATOR = "pipeline_orchestrator"
+    # quality_scorer: 质量评分器 Agent
     QUALITY_SCORER = "quality_scorer"
+    # diagnose: 诊断 Agent
     DIAGNOSE = "diagnose"
+    # fix: 修复 Agent
     FIX = "fix"
+    # validate: 验证 Agent
     VALIDATE = "validate"
+    # critic: 批评 Agent
     CRITIC = "critic"
+    # rebuttal: 反驳 Agent
     REBUTTAL = "rebuttal"
+    # reflect: 反思 Agent
     REFLECT = "reflect"
 
 
+# 定义补丁操作的枚举类，继承自str和Enum类
 class PatchOperation(str, Enum):
     REWRITE = "rewrite"
     CREATE = "create"
     DELETE = "delete"
 
-
+# 定义审批范围的枚举类，继承自str和Enum类
 class ApprovalScope(str, Enum):
+    # local_command: 本地命令执行范围
     LOCAL_COMMAND = "local_command"
+    # github_write: GitHub 写入范围
     GITHUB_WRITE = "github_write"
+    # ci_write: CI 写入范围
     CI_WRITE = "ci_write"
+    # remote_execution: 远程执行范围
     REMOTE_EXECUTION = "remote_execution"
 
 
-# Bug report (primary event record)
+""" 
+Bug report (primary event record)
+@dataclass 一个装饰器，帮你自动生成样板代码（__init__、__repr__、__eq__）
+slots=True 表示使用 __slots__ 来优化内存使用，避免为每个实例创建 __dict__，从而节省内存空间。
+__slots__原理：Python 对象默认用一个字典 __dict__ 存属性，灵活但吃内存，用 __slots__ 改成固定槽位
+"""
 @dataclass(slots=True)
 class BugReport:
-    """Bug 复盘原始报告（对齐上游愿景：来源扩展至 PR/提交/日志/群聊）"""
+    """
+    Bug 复盘原始报告（对齐上游愿景：来源扩展至 PR/提交/日志/群聊）
+    类型注释，不会影响代码执行，但可以帮助开发者理解变量的类型，并在静态类型检查工具中使用。
+    与Java默认属性为null不同，Python没有默认值，必须显式赋值，否则属性不存在
+    """
     id: str
     title: str
     description: str
     logs: str
+    """ 
+    注解 + 赋值，变量存在且为 list[str] 类型，默认值为一个空列表
+    不能直接写[],因为Python 的默认参数在函数定义时只求值一次，会导致所有实例共享同一个列表对象
+    """
     changed_files: list[str] = field(default_factory=list)
     suspected_modules: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -78,16 +132,22 @@ class BugReport:
     # 新增字段：来源类型（PR / 日志 / 群聊 / 手动）
     source_type: str = "manual"
     # 新增字段：关联 PR/Commit 信息
+    # 注解 + 赋值，变量存在且为 None 或 str 类型，默认值为 None
     pr_id: str | None = None
     commit_sha: str | None = None
     repo_url: str | None = None
 
+    """ 
+    声明BugReport类的实例方法to_dict，用于将实例转换为字典表示。返回类型为dict[str, Any]，表示键为字符串，值可以是任意类型的字典。
+    自动生成 to_dict: from pydantic import BaseModel, class BugReport(BaseModel): id: str; title: str; description: str; logs: str; changed_files: list[str] = []; suspected_modules: list[str] = []; metadata: dict[str, Any] = {}; reported_at: str = iso_now(); source_type: str = "manual"; pr_id: str | None = None; commit_sha: str | None = None; repo_url: str | None = None
+    """
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "title": self.title,
             "description": self.description,
             "logs": self.logs,
+            # list(...) 和 dict(...)是防御性拷贝，确保返回的字典中的列表和字典是 BugReport 实例的副本，而不是原始对象的引用。这样可以避免外部修改返回的字典影响到 BugReport 实例的内部状态。
             "changed_files": list(self.changed_files),
             "suspected_modules": list(self.suspected_modules),
             "metadata": dict(self.metadata),
@@ -98,13 +158,19 @@ class BugReport:
             "repo_url": self.repo_url,
         }
 
+
+    # classmethod 装饰器将 from_dict 方法定义为类方法，可以通过类本身调用，而不需要实例化对象。
+    # cls 参数表示当前类（BugReport）;self 参数表示当前实例（对象）。在类方法中，cls 可以用于创建类的实例或访问类的属性和方法。
+    # -> "BugReport" 表示该方法的返回类型是 BugReport 类的实例。前向引用（"BugReport"）用于在类型提示中引用尚未定义的类。
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "BugReport":
+    def from_dict(cls, data: dict[str, Any]) -> BugReport:
         return cls(
+            # data.get("title","默认")类比map.getOrDefault("title", "默认")
             id=data.get("id", data.get("title", "bug").lower().replace(" ", "-")),
             title=data.get("title", "Untitled Bug Report"),
             description=data.get("description", ""),
             logs=data.get("logs", ""),
+            # list() 是浅拷贝,要深拷贝得用 copy.deepcopy()
             changed_files=list(data.get("changed_files", [])),
             suspected_modules=list(data.get("suspected_modules", [])),
             metadata=dict(data.get("metadata", {})),
@@ -112,10 +178,12 @@ class BugReport:
             source_type=data.get("source_type", "manual"),
             pr_id=data.get("pr_id"),
             commit_sha=data.get("commit_sha"),
+            # or的短路特性：a 为真返回 a，否则返回 b
             repo_url=data.get("repo_url") or data.get("metadata", {}).get("repo_url"),
         )
 
 
+# 定义IncidentReport类，继承自BugReport类，用于表示事件报告。该类主要用于向后兼容，提供了一个from_dict类方法，用于从字典数据创建IncidentReport实例。
 class IncidentReport(BugReport):
     """Type alias for backward compatibility."""
     @classmethod
@@ -136,6 +204,7 @@ class IncidentReport(BugReport):
         )
 
 
+# 定义CompressedError类，用于表示压缩后的错误信息。该类使用了dataclass装饰器，并启用了slots以优化内存使用。
 @dataclass(slots=True)
 class CompressedError:
     error_type: IncidentType
@@ -147,7 +216,7 @@ class CompressedError:
     confidence: float
 
 
-# Knowledge entry (indexed bug review artifact)
+# 定义KnowledgeEntry类，用于表示踩坑知识条目。该类使用了dataclass装饰器，并启用了slots以优化内存使用。
 @dataclass(slots=True)
 class KnowledgeEntry:
     """踩坑知识条目（对齐上游愿景：团队踩坑知识库）"""
@@ -171,6 +240,7 @@ class KnowledgeEntry:
     # 新增字段：适用场景（前端/后端/全栈等）
     applicable_context: str = ""
 
+    # property 装饰器将 success_rate 方法定义为属性，可以通过实例.属性名 的方式访问，而不需要调用方法。
     @property
     def success_rate(self) -> float:
         if self.usage_count == 0:
@@ -301,7 +371,7 @@ class ExtractionStep:
     extracted_fields: dict[str, Any] = field(default_factory=dict)
 
 
-
+# RepairStep 是 ExtractionStep 的别名，用于表示修复步骤。它们具有相同的结构和属性，但在语义上可能用于不同的上下文。
 RepairStep = ExtractionStep
 
 
@@ -341,34 +411,35 @@ class PreparedIncident:
 
 
 @dataclass(slots=True)
+# 补丁编辑操作
 class PatchEdit:
-    path: str
-    operation: PatchOperation
-    content: str = ""
-    reason: str = ""
+    path: str # 文件路径
+    operation: PatchOperation # 操作类型
+    content: str = "" # 操作内容
+    reason: str = "" # 操作原因
 
 
 ## Structured review output
 @dataclass(slots=True)
 class StructuredReview:
     """LLM extraction output"""
-    analysis: str
-    summary: str
-    commit_message: str
-    validation_commands: list[str]
-    edits: list[PatchEdit]
-    model: str
-    raw_response: str = ""
-    usage: dict[str, int] = field(default_factory=dict)
+    analysis: str # 分析结果
+    summary: str # 摘要
+    commit_message: str # 提交消息
+    validation_commands: list[str] # 验证命令
+    edits: list[PatchEdit] # 补丁编辑操作
+    model: str # 模型名称
+    raw_response: str = "" # 原始 LLM 响应
+    usage: dict[str, int] = field(default_factory=dict) # 使用量信息
     # 新增字段：抽取质量指标
     extraction_confidence: float = 0.0
     # 新增字段：Bug 复盘核心字段
-    root_cause: str = ""
-    impact_scope: str = ""
-    fix_solution: str = ""
-    prevention: str = ""
-    related_modules: list[str] = field(default_factory=list)
-    keywords: list[str] = field(default_factory=list)
+    root_cause: str = "" # 根原因
+    impact_scope: str = "" # 影响范围
+    fix_solution: str = "" # 修复方案
+    prevention: str = "" # 预防措施
+    related_modules: list[str] = field(default_factory=list) # 相关模块
+    keywords: list[str] = field(default_factory=list) # 关键词
 
 
 
@@ -435,6 +506,7 @@ class GitHubSyncResult:
     repo: str
     runs: list[GitHubWorkflowRun]
     incidents: list[BugReport]
+    # last_logs_excerpt 字段用于存储最近的日志摘要，类型为字符串，默认值为空字符串。这个字段可以帮助用户快速了解最近的日志内容，而无需查看完整的日志。
     latest_logs_excerpt: str = ""
 
 
